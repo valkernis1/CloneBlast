@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Clone Blast: Ultimate</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+--bg-gradient: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+--glass-bg: rgba(255, 255, 255, 0.05);
+--glass-border: rgba(255, 255, 255, 0.1);
+--text-main: #ffffff;
+--text-secondary: #a0a0a0;
+--accent-color: #4cc9f0;
+--danger-color: #f72585;
+}
+
+* { box-sizing: border-box; user-select: none; -webkit-tap-highlight-color: transparent; }
+
+body {
+margin: 0;
+padding: 0;
+background: var(--bg-gradient);
+color: var(--text-main);
+font-family: 'Nunito', sans-serif;
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+height: 100vh;
+overflow: hidden;
+touch-action: none;
+}
+
+/* UI HEADER */
+.ui-header {
+width: 100%;
+max-width: 500px;
+display: flex;
+justify-content: space-between;
+align-items: center;
+padding: 0 20px;
+margin-bottom: 15px;
+}
+
+.logo {
+font-size: 28px;
+font-weight: 900;
+background: linear-gradient(to right, #4cc9f0, #4361ee);
+-webkit-background-clip: text;
+-webkit-text-fill-color: transparent;
+text-shadow: 0 4px 15px rgba(67, 97, 238, 0.3);
+}
+
+.score-board {
+display: flex;
+gap: 15px;
+}
+
+.score-card {
+background: var(--glass-bg);
+border: 1px solid var(--glass-border);
+border-radius: 12px;
+padding: 8px 16px;
+text-align: center;
+backdrop-filter: blur(10px);
+min-width: 80px;
+}
+
+.score-label { font-size: 10px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; }
+.score-value { font-size: 20px; font-weight: 800; color: var(--text-main); }
+
+/* GAME CONTAINER */
+#game-wrapper {
+position: relative;
+padding: 10px;
+background: rgba(0, 0, 0, 0.2);
+border-radius: 20px;
+box-shadow: 0 20px 50px rgba(0,0,0,0.5), inset 0 0 0 1px var(--glass-border);
+}
+
+canvas {
+border-radius: 12px;
+display: block;
+cursor: grab;
+}
+canvas:active { cursor: grabbing; }
+
+/* GAME OVER OVERLAY */
+#overlay {
+position: absolute;
+top: 0; left: 0; width: 100%; height: 100%;
+background: rgba(26, 26, 46, 0.85);
+backdrop-filter: blur(8px);
+border-radius: 20px;
+display: none;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+z-index: 100;
+opacity: 0;
+transition: opacity 0.3s ease;
+}
+
+#overlay.visible { opacity: 1; }
+
+#overlay h2 {
+font-size: 40px;
+margin: 0 0 10px 0;
+background: linear-gradient(to right, #f72585, #b5179e);
+-webkit-background-clip: text;
+-webkit-text-fill-color: transparent;
+}
+
+.btn-restart {
+background: linear-gradient(45deg, #4361ee, #4cc9f0);
+border: none;
+padding: 15px 40px;
+font-family: 'Nunito', sans-serif;
+font-size: 18px;
+font-weight: 800;
+color: white;
+border-radius: 50px;
+cursor: pointer;
+box-shadow: 0 10px 20px rgba(67, 97, 238, 0.4);
+transition: transform 0.1s, box-shadow 0.1s;
+margin-top: 20px;
+}
+
+.btn-restart:hover { transform: translateY(-2px); box-shadow: 0 15px 25px rgba(67, 97, 238, 0.5); }
+.btn-restart:active { transform: scale(0.95); }
+
+</style>
+</head>
+<body>
+
+<div class="ui-header">
+<div class="logo">CLONE BLAST</div>
+<div class="score-board">
+<div class="score-card">
+<div class="score-label">Best</div>
+<div class="score-value" id="high-score">0</div>
+</div>
+<div class="score-card">
+<div class="score-label">Score</div>
+<div class="score-value" id="current-score">0</div>
+</div>
+</div>
+</div>
+
+<div id="game-wrapper">
+<canvas id="gameCanvas"></canvas>
+<div id="overlay">
+<h2>NO MOVES!</h2>
+<div class="score-label">FINAL SCORE</div>
+<div class="score-value" id="final-score" style="font-size: 32px; margin-bottom: 10px;">0</div>
+<button class="btn-restart" onclick="restartGame()">TRY AGAIN</button>
+</div>
+</div>
+
+<script>
+// --- CONFIG & CONSTANTS ---
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d', { alpha: false }); // Opt for speed
+
+const GRID_SIZE = 8;
+const BOARD_PADDING = 15;
+const HAND_HEIGHT = 180;
+let CELL_SIZE = 0; // Dynamic
+
+// Modern Palette
+const PALETTE = [
+"#ff595e", // Red
+"#ffca3a", // Yellow
+"#8ac926", // Green
+"#1982c4", // Blue
+"#6a4c93", // Purple
+"#f15bb5", // Pink
+"#4cc9f0" // Cyan
+];
+
+// Shapes (Tetrominos + Pentominos + Custom)
+const SHAPES = [
+[[1]], [[1,1]], [[1],[1]], [[1,1,1]], [[1],[1],[1]],
+[[1,1],[1,1]], [[1,1,1],[0,1,0]], [[0,1,0],[1,1,1]],
+[[1,0],[1,0],[1,1]], [[0,1],[0,1],[1,1]],
+[[1,1],[0,1]], [[1,1],[1,0]],
+[[1,0,0],[1,1,1]], [[0,0,1],[1,1,1]]
+];
+
+// --- STATE ---
+let grid = [];
+let hand = [];
+let score = 0;
+let displayScore = 0;
+let highScore = localStorage.getItem('cb_highscore') || 0;
+let isGameOver = false;
+let comboCount = 0; // Для серии очисток
+
+// UI Elements
+const scoreEl = document.getElementById('current-score');
+const highScoreEl = document.getElementById('high-score');
+const finalScoreEl = document.getElementById('final-score');
+const overlay = document.getElementById('overlay');
+
+// Animation / FX State
+let particles = [];
+let floatingTexts = [];
+let shakeIntensity = 0;
+let draggingShape = null;
+let dragOffset = {x:0, y:0};
+let previewCoords = null;
+let time = 0; // For shader-like effects
+
+// --- AUDIO ENGINE (Synthesized) ---
+const AudioEngine = {
+ctx: new (window.AudioContext || window.webkitAudioContext)(),
+play(type) {
+if (this.ctx.state === 'suspended') this.ctx.resume();
+const t = this.ctx.currentTime;
+const osc = this.ctx.createOscillator();
+const gain = this.ctx.createGain();
+osc.connect(gain);
+gain.connect(this.ctx.destination);
+
+if (type === 'pickup') {
+osc.frequency.setValueAtTime(300, t);
+osc.frequency.exponentialRampToValueAtTime(600, t+0.1);
+gain.gain.setValueAtTime(0.1, t);
+gain.gain.linearRampToValueAtTime(0, t+0.1);
+osc.start(t); osc.stop(t+0.1);
+} else if (type === 'drop') {
+osc.type = 'triangle';
+osc.frequency.setValueAtTime(150, t);
+osc.frequency.exponentialRampToValueAtTime(50, t+0.2);
+gain.gain.setValueAtTime(0.2, t);
+gain.gain.linearRampToValueAtTime(0, t+0.2);
+osc.start(t); osc.stop(t+0.2);
+} else if (type === 'clear') {
+// Chord for clear
+[400, 600, 800].forEach((f, i) => {
+const o = this.ctx.createOscillator();
+const g = this.ctx.createGain();
+o.type = 'sine';
+o.connect(g); g.connect(this.ctx.destination);
+o.frequency.value = f * (1 + comboCount * 0.2);
+g.gain.setValueAtTime(0.1, t);
+g.gain.exponentialRampToValueAtTime(0.01, t + 0.3 + i*0.1);
+o.start(t); o.stop(t + 0.5);
+});
+}
+}
+};
+
+// --- INIT & LOOP ---
+function init() {
+highScoreEl.innerText = highScore;
+resize();
+window.addEventListener('resize', resize);
+
+// Events
+canvas.addEventListener('pointerdown', onDown);
+window.addEventListener('pointermove', onMove);
+window.addEventListener('pointerup', onUp);
+canvas.addEventListener('touchmove', e => e.preventDefault(), {passive: false});
+
+restartGame();
+requestAnimationFrame(loop);
+}
+
+function resize() {
+const maxWidth = Math.min(window.innerWidth - 20, 500);
+CELL_SIZE = Math.floor((maxWidth - BOARD_PADDING * 2) / GRID_SIZE);
+canvas.width = (CELL_SIZE * GRID_SIZE) + (BOARD_PADDING * 2);
+canvas.height = canvas.width + HAND_HEIGHT;
+}
+
+function restartGame() {
+grid = Array(GRID_SIZE).fill().map(() => Array(GRID_SIZE).fill(null));
+hand = [];
+score = 0; displayScore = 0; comboCount = 0;
+isGameOver = false;
+particles = []; floatingTexts = [];
+
+overlay.style.display = 'none';
+overlay.classList.remove('visible');
+
+spawnHand();
+}
+
+function loop() {
+time += 0.05;
+update();
+draw();
+requestAnimationFrame(loop);
+}
+
+// --- LOGIC UPDATE ---
+function update() {
+// Smooth Score
+if (displayScore < score) {
+const diff = score - displayScore;
+displayScore += Math.ceil(diff / 5);
+scoreEl.innerText = displayScore;
+}
+
+// Screen Shake Decay
+if (shakeIntensity > 0) shakeIntensity *= 0.9;
+if (shakeIntensity < 0.5) shakeIntensity = 0;
+
+// Particles Physics
+for (let i = particles.length - 1; i >= 0; i--) {
+let p = particles[i];
+p.x += p.vx;
+p.y += p.vy;
+p.vy += 0.5; // Gravity
+p.life -= 0.02;
+p.rotation += p.rv;
+if (p.life <= 0) particles.splice(i, 1);
+}
+
+// Floating Text Physics
+for (let i = floatingTexts.length - 1; i >= 0; i--) {
+let ft = floatingTexts[i];
+ft.y -= 1.5; // Fly up
+ft.life -= 0.015;
+if (ft.life <= 0) floatingTexts.splice(i, 1);
+}
+}
+
+function spawnHand() {
+hand = [];
+const slotW = canvas.width / 3;
+for (let i = 0; i < 3; i++) {
+const shapeFn = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+const color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+hand.push({
+matrix: shapeFn,
+color: color,
+baseX: slotW * i + slotW / 2,
+baseY: canvas.height - HAND_HEIGHT / 2,
+x: slotW * i + slotW / 2,
+y: canvas.height - HAND_HEIGHT / 2,
+scale: 0.6,
+isPlaced: false,
+targetScale: 0.6
+});
+}
+comboCount = 0; // Reset combo when getting new hand
+checkLoss();
+}
+
+// --- INTERACTION ---
+function onDown(e) {
+if (isGameOver) return;
+const pos = getPos(e);
+
+// Find touched shape
+for (let s of hand) {
+if (s.isPlaced) continue;
+const w = s.matrix[0].length * CELL_SIZE * s.scale;
+const h = s.matrix.length * CELL_SIZE * s.scale;
+// Hitbox slightly larger
+if (Math.abs(pos.x - s.x) < w && Math.abs(pos.y - s.y) < h) {
+draggingShape = s;
+s.targetScale = 1.0;
+dragOffset = {x: pos.x - s.x, y: pos.y - s.y + 70}; // Offset so finger doesn't hide block
+AudioEngine.play('pickup');
+break;
+}
+}
+}
+
+function onMove(e) {
+if (!draggingShape) return;
+const pos = getPos(e);
+
+// Smooth follow
+draggingShape.x = pos.x - dragOffset.x;
+draggingShape.y = pos.y - dragOffset.y;
+
+// Lerp scale
+draggingShape.scale += (draggingShape.targetScale - draggingShape.scale) * 0.3;
+
+// Preview calculation
+const mx = draggingShape.matrix[0].length;
+const my = draggingShape.matrix.length;
+const r = Math.round((draggingShape.y - BOARD_PADDING) / CELL_SIZE - my/2);
+const c = Math.round((draggingShape.x - BOARD_PADDING) / CELL_SIZE - mx/2);
+
+if (canPlace(draggingShape.matrix, r, c)) {
+previewCoords = {r, c};
+} else {
+previewCoords = null;
+}
+}
+
+function onUp(e) {
+if (!draggingShape) return;
+
+if (previewCoords) {
+// Place it
+placeShape(draggingShape, previewCoords.r, previewCoords.c);
+draggingShape.isPlaced = true;
+draggingShape.scale = 0; // Disappear
+AudioEngine.play('drop');
+
+checkLines();
+
+// Logic flow
+if (hand.every(s => s.isPlaced)) {
+setTimeout(spawnHand, 200);
+} else {
+checkLoss();
+}
+} else {
+// Snap back
+const animateBack = (s) => {
+const dx = s.baseX - s.x;
+const dy = s.baseY - s.y;
+if (Math.abs(dx) < 1 && Math.abs(dy) < 1) {
+s.x = s.baseX; s.y = s.baseY; s.scale = 0.6;
+return;
+}
+s.x += dx * 0.2;
+s.y += dy * 0.2;
+s.scale += (0.6 - s.scale) * 0.2;
+requestAnimationFrame(() => animateBack(s));
+};
+animateBack(draggingShape);
+}
+
+draggingShape = null;
+previewCoords = null;
+}
+
+function getPos(e) {
+const r = canvas.getBoundingClientRect();
+return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+
+// --- CORE GAMEPLAY ---
+function canPlace(matrix, r, c) {
+for (let i=0; i<matrix.length; i++) {
+for (let j=0; j<matrix[i].length; j++) {
+if (matrix[i][j]) {
+if (r+i < 0 || r+i >= GRID_SIZE || c+j < 0 || c+j >= GRID_SIZE || grid[r+i][c+j]) return false;
+}
+}
+}
+return true;
+}
+
+function placeShape(shape, r, c) {
+shape.matrix.forEach((row, dy) => {
+row.forEach((val, dx) => {
+if (val) grid[r+dy][c+dx] = shape.color;
+});
+});
+addScore(10, shape.x, shape.y);
+}
+
+function checkLines() {
+const rows = [], cols = [];
+// Identify lines
+for(let r=0; r<GRID_SIZE; r++) if(grid[r].every(v=>v)) rows.push(r);
+for(let c=0; c<GRID_SIZE; c++) if(grid.map(r=>r[c]).every(v=>v)) cols.push(c);
+
+const totalLines = rows.length + cols.length;
+if (totalLines > 0) {
+comboCount++;
+
+// Visual Juice
+shakeIntensity = totalLines * 4;
+AudioEngine.play('clear');
+
+// Clear Logic & Particles
+rows.forEach(r => {
+for(let c=0; c<GRID_SIZE; c++) {
+if(grid[r][c]) createExplosion(r, c, grid[r][c]);
+grid[r][c] = null;
+}
+});
+cols.forEach(c => {
+for(let r=0; r<GRID_SIZE; r++) {
+if(grid[r][c]) createExplosion(r, c, grid[r][c]);
+grid[r][c] = null;
+}
+});
+
+// Scoring
+let basePoints = totalLines * 100;
+let multiplier = 1 + (totalLines - 1) * 0.5 + (comboCount > 1 ? 0.5 : 0);
+let finalPoints = Math.floor(basePoints * multiplier);
+
+// Floating Text center of board
+let text = `+${finalPoints}`;
+if (totalLines > 1) text = "COMBO!";
+if (comboCount > 2) text = "INSANE!";
+
+spawnFloatText(text, canvas.width/2, canvas.height/2 - 50, totalLines > 1 ? 40 : 25, "#fff");
+addScore(finalPoints);
+} else {
+comboCount = 0;
+}
+}
+
+function createExplosion(r, c, color) {
+const x = BOARD_PADDING + c * CELL_SIZE + CELL_SIZE/2;
+const y = BOARD_PADDING + r * CELL_SIZE + CELL_SIZE/2;
+for(let i=0; i<4; i++) {
+particles.push({
+x: x, y: y,
+vx: (Math.random()-0.5) * 12,
+vy: (Math.random()-0.5) * 12,
+life: 1.0,
+color: color,
+size: CELL_SIZE/2 * Math.random(),
+rotation: Math.random() * Math.PI,
+rv: (Math.random()-0.5) * 0.2
+});
+}
+}
+
+function spawnFloatText(text, x, y, size, color) {
+floatingTexts.push({text, x, y, size, color, life: 1.0});
+}
+
+function addScore(points, x, y) {
+score += points;
+if (score > highScore) {
+highScore = score;
+localStorage.setItem('cb_highscore', highScore);
+highScoreEl.innerText = highScore;
+}
+}
+
+function checkLoss() {
+const active = hand.filter(s => !s.isPlaced);
+if (active.length === 0) return;
+
+let possible = false;
+// Brute force check (it's fast enough for 8x8)
+for (let s of active) {
+for (let r=-2; r<GRID_SIZE; r++) {
+for (let c=-2; c<GRID_SIZE; c++) {
+if (canPlace(s.matrix, r, c)) {
+possible = true; break;
+}
+}
+if(possible) break;
+}
+if(possible) break;
+}
+
+if (!possible) {
+isGameOver = true;
+setTimeout(() => {
+finalScoreEl.innerText = score;
+overlay.style.display = 'flex';
+requestAnimationFrame(() => overlay.classList.add('visible'));
+}, 500);
+}
+}
+
+// --- DRAWING ---
+function draw() {
+// Fill Background
+ctx.fillStyle = '#1e1e2e'; // Backup color
+ctx.clearRect(0,0, canvas.width, canvas.height); // Clear transparent for glass effect
+
+// Apply Shake
+ctx.save();
+if (shakeIntensity > 0.5) {
+const dx = (Math.random() - 0.5) * shakeIntensity;
+const dy = (Math.random() - 0.5) * shakeIntensity;
+ctx.translate(dx, dy);
+}
+
+// Draw Board Bg
+drawGridBg();
+
+// Draw Placed Blocks
+for(let r=0; r<GRID_SIZE; r++) {
+for(let c=0; c<GRID_SIZE; c++) {
+if (grid[r][c]) {
+drawBlock(r, c, grid[r][c]);
+}
+}
+}
+
+// Draw Ghost Piece
+if (previewCoords && draggingShape) {
+ctx.globalAlpha = 0.2;
+draggingShape.matrix.forEach((row, dy) => {
+row.forEach((val, dx) => {
+if(val) drawBlock(previewCoords.r+dy, previewCoords.c+dx, draggingShape.color, true);
+});
+});
+ctx.globalAlpha = 1.0;
+}
+
+// Draw Hand
+hand.forEach(s => {
+if (!s.isPlaced) drawShape(s);
+});
+
+// Draw Particles
+particles.forEach(p => {
+ctx.save();
+ctx.translate(p.x, p.y);
+ctx.rotate(p.rotation);
+ctx.globalAlpha = p.life;
+ctx.fillStyle = p.color;
+ctx.fillRect(-p.size/2, -p.size/2, p.size, p.size);
+ctx.restore();
+});
+
+// Draw Floating Text
+floatingTexts.forEach(ft => {
+ctx.globalAlpha = Math.max(0, ft.life);
+ctx.fillStyle = ft.color;
+ctx.font = `900 ${ft.size}px 'Nunito'`;
+ctx.textAlign = 'center';
+ctx.strokeStyle = 'black';
+ctx.lineWidth = 3;
+ctx.strokeText(ft.text, ft.x, ft.y);
+ctx.fillText(ft.text, ft.x, ft.y);
+ctx.globalAlpha = 1.0;
+});
+
+ctx.restore();
+}
+
+function drawGridBg() {
+for(let r=0; r<GRID_SIZE; r++) {
+for(let c=0; c<GRID_SIZE; c++) {
+const x = BOARD_PADDING + c * CELL_SIZE;
+const y = BOARD_PADDING + r * CELL_SIZE;
+const s = CELL_SIZE - 4;
+
+// Slot style
+ctx.fillStyle = "rgba(0,0,0,0.3)";
+roundRect(x+2, y+2, s, s, 6);
+ctx.fill();
+}
+}
+}
+
+function drawBlock(r, c, color, isGhost) {
+const x = BOARD_PADDING + c * CELL_SIZE;
+const y = BOARD_PADDING + r * CELL_SIZE;
+const s = CELL_SIZE - 2;
+const pad = 1;
+
+if (isGhost) {
+ctx.fillStyle = "#ffffff";
+roundRect(x+pad, y+pad, s, s, 8);
+ctx.fill();
+return;
+}
+
+// Main Block
+ctx.fillStyle = color;
+// Add a slight shadow
+ctx.shadowColor = color;
+ctx.shadowBlur = 10;
+roundRect(x+pad, y+pad, s, s, 8);
+ctx.fill();
+ctx.shadowBlur = 0;
+
+// Inner lighting (Bevel effect)
+ctx.fillStyle = "rgba(255,255,255,0.3)";
+ctx.beginPath();
+ctx.moveTo(x+pad, y+pad+s);
+ctx.lineTo(x+pad, y+pad);
+ctx.lineTo(x+pad+s, y+pad);
+ctx.lineTo(x+pad+s-4, y+pad+4);
+ctx.lineTo(x+pad+4, y+pad+4);
+ctx.lineTo(x+pad+4, y+pad+s-4);
+ctx.closePath();
+ctx.fill();
+}
+
+function drawShape(s) {
+const cs = CELL_SIZE * s.scale;
+const w = s.matrix[0].length * cs;
+const h = s.matrix.length * cs;
+const cx = s.x - w/2;
+const cy = s.y - h/2;
+
+s.matrix.forEach((row, r) => {
+row.forEach((val, c) => {
+if (val) {
+const bx = cx + c * cs;
+const by = cy + r * cs;
+
+ctx.fillStyle = s.color;
+if (s === draggingShape) {
+ctx.shadowColor = s.color;
+ctx.shadowBlur = 20;
+}
+
+roundRect(bx+1, by+1, cs-2, cs-2, 6);
+ctx.fill();
+ctx.shadowBlur = 0;
+
+// Highlight
+ctx.fillStyle = "rgba(255,255,255,0.4)";
+ctx.beginPath();
+ctx.arc(bx + cs*0.25, by + cs*0.25, cs*0.1, 0, Math.PI*2);
+ctx.fill();
+}
+});
+});
+}
+
+function roundRect(x, y, w, h, r) {
+ctx.beginPath();
+ctx.moveTo(x + r, y);
+ctx.lineTo(x + w - r, y);
+ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+ctx.lineTo(x + w, y + h - r);
+ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+ctx.lineTo(x + r, y + h);
+ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+ctx.lineTo(x, y + r);
+ctx.quadraticCurveTo(x, y, x + r, y);
+ctx.closePath();
+}
+
+// Boot
+init();
+
+</script>
+</body>
+</html>
